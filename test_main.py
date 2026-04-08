@@ -289,13 +289,15 @@ def test_api_news_unauthorized(client):
 @patch("services.news_fetcher.NEWS_API_KEY", "dummy")
 @patch("services.news_fetcher.GNEWS_API_KEY", "dummy")
 @patch("services.news_fetcher.NEWSDATA_API_KEY", "dummy")
+@patch("services.news_fetcher._fetch_rss_news", new_callable=AsyncMock, return_value=[])
 @patch("services.news_fetcher.httpx.AsyncClient.get")
-def test_api_news_with_token(mock_get, client):
+def test_api_news_with_token(mock_get, mock_rss, client):
     """GET /api/news with token should mock HTTP requests and append VADER sentiment."""
     # ── Setup mock response representing GNews API JSON format
-    mock_resp = MagicMock()
-    mock_resp.raise_for_status = MagicMock()
-    mock_resp.json.return_value = {
+    mock_gnews_resp = MagicMock()
+    mock_gnews_resp.raise_for_status = MagicMock()
+    mock_gnews_resp.status_code = 200
+    mock_gnews_resp.json.return_value = {
         "articles": [
             {
                 "title": "Positive Sample", 
@@ -313,7 +315,15 @@ def test_api_news_with_token(mock_get, client):
             }
         ]
     }
-    mock_get.return_value = mock_resp
+
+    mock_empty_resp = MagicMock()
+    mock_empty_resp.raise_for_status = MagicMock()
+    mock_empty_resp.status_code = 200
+    mock_empty_resp.json.return_value = {"articles": [], "results": []}
+
+    # The order of awaited calls in fetch_all_news is: newsapi, gnews, newsdata
+    # _fetch_rss_news is patched separately and returns []
+    mock_get.side_effect = [mock_empty_resp, mock_gnews_resp, mock_empty_resp]
 
     # Register & Login
     client.post("/auth/register", json={"username": "newsuser", "email": "news@example.com", "password": "Password123!"})
@@ -340,17 +350,15 @@ def test_api_chat_unauthorized(client):
     assert resp.status_code == 401
 
 
-@patch("services.gemini.genai.Client")
-def test_api_chat_with_token(mock_client_class, client):
-    """POST /api/chat with token should bypass Gemini and return mocked answer."""
-    # ── Setup mock Gemini response
-    mock_answer = MagicMock()
-    mock_answer.text = "The article discusses amazingly robust software."
-    
-    mock_client_instance = MagicMock()
-    # In google-genai, it's client.aio.models.generate_content for async
-    mock_client_instance.aio.models.generate_content = AsyncMock(return_value=mock_answer)
-    mock_client_class.return_value = mock_client_instance
+@patch("services.ai_engine.client.chat.completions.create", new_callable=AsyncMock)
+def test_api_chat_with_token(mock_create_completion, client):
+    """POST /api/chat with token should bypass Groq and return mocked answer."""
+    # ── Setup mock Groq response
+    mock_response = MagicMock()
+    mock_response.choices = [MagicMock()]
+    mock_response.choices[0].message = MagicMock()
+    mock_response.choices[0].message.content = "The article discusses amazingly robust software."
+    mock_create_completion.return_value = mock_response
 
     # Register & Login
     client.post("/auth/register", json={"username": "chatuser", "email": "chat@example.com", "password": "Password123!"})

@@ -13,6 +13,7 @@ class UserCreate(BaseModel):
     username: str = Field(..., min_length=3, max_length=50)
     email: EmailStr
     password: str = Field(..., min_length=8)
+    confirm_password: str = Field(..., min_length=8)
 
 
 class UserOut(BaseModel):
@@ -20,6 +21,19 @@ class UserOut(BaseModel):
     username: str
     email: EmailStr
     created_at: datetime
+    is_verified: bool = False
+
+class VerifyRequest(BaseModel):
+    email: str
+    otp: str
+
+class ForgotPasswordRequest(BaseModel):
+    email: EmailStr
+
+class ResetPasswordRequest(BaseModel):
+    email: EmailStr
+    otp: str
+    new_password: str = Field(..., min_length=8)
 
 
 class Token(BaseModel):
@@ -44,6 +58,8 @@ class SaveArticleRequest(BaseModel):
     published_at: Optional[str] = None
     sentiment: Optional[str] = Field(None, pattern="^(Positive|Negative|Neutral)$")
     categories: Optional[List[str]] = []
+    tags: List[str] = []
+    note: str = ""
 
 
 class SavedArticleOut(BaseModel):
@@ -57,7 +73,9 @@ class SavedArticleOut(BaseModel):
     image_url: Optional[str] = None
     published_at: Optional[str] = None
     sentiment: Optional[str] = None
-    categories: List[str] = []
+    categories: Optional[List[str]] = []
+    tags: List[str] = []
+    note: str = ""
     saved_at: datetime
 
 
@@ -86,9 +104,10 @@ class NewsResponse(BaseModel):
 # ━━━━━━━━━━━━━━━━━━━  CHAT  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 class ChatRequest(BaseModel):
-    question: str = Field(..., min_length=1, max_length=2000)
-    article_text: str = Field(..., min_length=1, max_length=15000)
+    question: str = Field(..., min_length=1, max_length=10000)
+    article_text: str = Field(..., min_length=1, max_length=50000)
     language: str = "English"
+    history: Optional[List[dict]] = None
 
 
 class ChatResponse(BaseModel):

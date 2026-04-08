@@ -12,7 +12,7 @@ router = APIRouter(prefix="/news", tags=["News"])
 @router.get("/")
 async def get_news(
     q: str = Query("", description="Search query"),
-    limit: int = Query(100, ge=1, le=200, description="Max articles to return"),
+    limit: int = Query(150, ge=1, le=500, description="Max articles to return"),
 ):
     """
     Fetch news from all configured APIs.

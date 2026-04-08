@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from typing import List
 
 from fastapi import APIRouter, HTTPException, Depends, Query
+from pydantic import BaseModel
 
 from dependencies import get_current_user
 from models import SaveArticleRequest, SavedArticleOut
@@ -15,10 +16,19 @@ import database
 router = APIRouter(tags=["Saved Articles"])
 
 
+class NoteUpdate(BaseModel):
+    note: str = ""
+
+class TagsUpdate(BaseModel):
+    tags: List[str]
+
+
 @router.get("/", response_model=List[SavedArticleOut])
 async def list_saved_articles(
     limit: int = Query(100, ge=1, le=500),
     skip: int = Query(0, ge=0),
+    search: str | None = Query(None),
+    tag: str | None = Query(None),
     current_user: dict = Depends(get_current_user),
 ):
     """Fetch saved articles for the current user, newest first."""
@@ -26,8 +36,19 @@ async def list_saved_articles(
     if db is None:
         raise HTTPException(status_code=503, detail="Database unavailable")
 
+    query = {"user_id": current_user["id"]}
+    if tag:
+        query["tags"] = tag
+    
+    if search:
+        query["$or"] = [
+            {"title": {"$regex": search, "$options": "i"}},
+            {"note": {"$regex": search, "$options": "i"}},
+            {"summary": {"$regex": search, "$options": "i"}}
+        ]
+
     cursor = (
-        db.saved_articles.find({"user_id": current_user["id"]})
+        db.saved_articles.find(query)
         .sort("saved_at", -1)
         .skip(skip)
         .limit(limit)
@@ -48,6 +69,8 @@ async def list_saved_articles(
             published_at=a.get("published_at"),
             sentiment=a.get("sentiment"),
             categories=a.get("categories", []),
+            tags=a.get("tags", []),
+            note=a.get("note", ""),
             saved_at=a["saved_at"],
         )
         for a in articles
@@ -95,6 +118,7 @@ async def save_article(
         "published_at": article.published_at,
         "sentiment": article.sentiment,
         "categories": article.categories or [],
+        "note": article.note,
         "saved_at": datetime.now(timezone.utc),
     }
     await db.saved_articles.insert_one(doc)
@@ -122,4 +146,47 @@ async def unsave_article(
     if result.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Saved article not found")
 
-    return {"ok": True, "message": "Article removed from saved"}
+    return {"ok": True, "message": "Article removed from vault"}
+
+
+@router.patch("/{article_id}/tags")
+async def update_tags(
+    article_id: str,
+    update: TagsUpdate,
+    current_user: dict = Depends(get_current_user)
+):
+    """Update tags for a saved article."""
+    db = database.get_db()
+    if db is None:
+        raise HTTPException(status_code=503, detail="Database unavailable")
+
+    result = await db.saved_articles.update_one(
+        {"user_id": current_user["id"], "article_id": article_id},
+        {"$set": {"tags": update.tags}}
+    )
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Article not found in vault")
+    
+    return {"ok": True, "message": "Tags updated"}
+
+
+@router.patch("/{article_id}/note")
+async def update_article_note(
+    article_id: str,
+    body: NoteUpdate,
+    current_user: dict = Depends(get_current_user),
+):
+    """Update the personal note on a saved article."""
+    db = database.get_db()
+    if db is None:
+        raise HTTPException(status_code=503, detail="Database unavailable")
+
+    result = await db.saved_articles.update_one(
+        {"user_id": current_user["id"], "article_id": article_id},
+        {"$set": {"note": body.note}}
+    )
+
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Saved article not found")
+
+    return {"ok": True, "message": "Note updated successfully"}

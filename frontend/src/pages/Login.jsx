@@ -113,6 +113,14 @@ const Login = () => {
                 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent 
                 transition-all duration-200 shadow-sm"
             />
+            <div className="flex justify-end mt-1">
+              <Link
+                to="/forgot-password"
+                className="text-xs font-semibold text-slate-500 hover:text-blue-600 transition-colors"
+              >
+                Forgot password?
+              </Link>
+            </div>
           </div>
 
           <button

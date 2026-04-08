@@ -22,10 +22,12 @@ JWT_ALGORITHM = os.getenv("JWT_ALGORITHM", "HS256")
 ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "1440"))
 
 # ─── External APIs ───────────────────────────────────────
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
+GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
 NEWS_API_KEY = os.getenv("NEWS_API_KEY", "")
 GNEWS_API_KEY = os.getenv("GNEWS_API_KEY", "")
 NEWSDATA_API_KEY = os.getenv("NEWSDATA_API_KEY", "")
+EMAIL_SENDER = os.getenv("EMAIL_SENDER", "your-gmail@gmail.com")
+EMAIL_PASSWORD = os.getenv("EMAIL_PASSWORD", "your-16-letter-app-password")
 
 # ─── Limits ───────────────────────────────────────────────
 MAX_SAVED_ARTICLES = 500

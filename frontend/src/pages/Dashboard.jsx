@@ -1,10 +1,10 @@
 import { useState, useEffect, useCallback } from "react";
 import { useNavigate, Link } from "react-router-dom";
-import { 
-  LogOut, 
-  LayoutDashboard, 
-  Search, 
-  RefreshCw, 
+import {
+  LogOut,
+  LayoutDashboard,
+  Search,
+  RefreshCw,
   AlertCircle,
   TrendingUp,
   Newspaper,
@@ -23,14 +23,16 @@ const Dashboard = () => {
   const [searchTerm, setSearchTerm] = useState("");
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [activeChatArticle, setActiveChatArticle] = useState(null);
+  const [user, setUser] = useState(null);
+
   const fetchNews = useCallback(async (query = "") => {
     try {
       setLoading(true);
       setError(null);
       const response = await api.get("/api/news", {
-        params: { q: query, limit: 100 }
+        params: { q: query, limit: 150 }
       });
-      
+
       if (response.data.success) {
         setArticles(response.data.data);
       } else {
@@ -45,10 +47,16 @@ const Dashboard = () => {
     }
   }, []);
 
-  // Initial fetch
+  // Initial fetch - RUNS ONLY ONCE ON MOUNT
   useEffect(() => {
-    fetchNews();
-  }, [fetchNews]);
+    fetchNews(""); 
+    api.get("/auth/me")
+      .then(res => setUser(res.data))
+      .catch(err => console.error("Failed to fetch user:", err));
+  }, []); // <-- CRITICAL: MUST BE EMPTY
+
+  // Safely grab the user's name, split by space to get the first name, fallback to 'there'
+  const firstName = user?.username ? user.username.split(' ')[0] : 'there';
 
   // Handle Search
   const handleSearchSubmit = (e) => {
@@ -81,8 +89,23 @@ const Dashboard = () => {
               </h1>
             </div>
 
+            {/* Personalized Welcome inline */}
+            <div className="hidden md:flex items-center text-base font-semibold text-slate-700 dark:text-slate-200">
+              Welcome back, <span className="font-bold text-blue-600 dark:text-blue-400 ml-1.5 text-lg">{firstName}! </span>
+            </div>
+
             <div className="flex items-center gap-2 sm:gap-4">
-              <Link 
+              <button
+                onClick={handleRefresh}
+                disabled={loading || isRefreshing}
+                className="flex items-center gap-2 px-3 py-2 text-sm font-bold text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-xl transition-all disabled:opacity-50"
+                title="Refresh News"
+              >
+                <RefreshCw className={`w-4 h-4 ${isRefreshing ? 'animate-spin' : ''}`} />
+                <span className="hidden sm:inline">Refresh</span>
+              </button>
+
+              <Link
                 to="/vault"
                 className="flex items-center gap-2 px-3 py-2 text-sm font-bold text-slate-600 dark:text-slate-400 hover:text-blue-600 dark:hover:text-blue-400 transition-all border border-transparent hover:border-slate-200 dark:hover:border-slate-800 rounded-xl"
               >
@@ -102,9 +125,9 @@ const Dashboard = () => {
         </div>
       </header>
 
-      {/* Hero / Filter Section */}
       <div className="bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+
           <div className="flex flex-col md:flex-row md:items-end justify-between gap-6">
             <div>
               <div className="flex items-center gap-2 text-blue-600 font-bold text-sm uppercase tracking-widest mb-1">
@@ -141,15 +164,6 @@ const Dashboard = () => {
               {articles.length} found
             </span>
           </div>
-          
-          <button 
-            onClick={handleRefresh}
-            disabled={loading || isRefreshing}
-            className="flex items-center gap-2 px-4 py-2 text-sm font-bold text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-lg transition-all disabled:opacity-50"
-          >
-            <RefreshCw className={`w-4 h-4 ${isRefreshing ? 'animate-spin' : ''}`} />
-            Refresh
-          </button>
         </div>
 
         {/* Loading State */}
@@ -183,7 +197,7 @@ const Dashboard = () => {
             <p className="text-slate-500 dark:text-slate-400 max-w-md mx-auto mb-8">
               {error}
             </p>
-            <button 
+            <button
               onClick={() => fetchNews(searchTerm)}
               className="px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl transition-all shadow-lg shadow-blue-600/30 active:scale-95"
             >
@@ -205,9 +219,9 @@ const Dashboard = () => {
           /* Articles Grid (Responsive 1/2/3) */
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
             {articles.map((article) => (
-              <NewsCard 
-                key={article.id} 
-                article={article} 
+              <NewsCard
+                key={article.id}
+                article={article}
                 onOpenChat={setActiveChatArticle}
               />
             ))}
@@ -217,9 +231,9 @@ const Dashboard = () => {
 
       {/* Chat Sidebar Overlay */}
       {activeChatArticle && (
-        <ChatSidebar 
-          article={activeChatArticle} 
-          onClose={() => setActiveChatArticle(null)} 
+        <ChatSidebar
+          article={activeChatArticle}
+          onClose={() => setActiveChatArticle(null)}
         />
       )}
 

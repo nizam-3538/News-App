@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from "react";
-import { X, Send, Bot, User, Sparkles, MessageCircle, Volume2, Square } from "lucide-react";
+import { X, Send, Bot, User, Sparkles, MessageCircle, Volume2, Square, Save, BookOpen } from "lucide-react";
 import api from "../utils/api";
+import NoteModal from "./NoteModal";
 
 const LANGUAGES = [
   { code: "English", label: "English" },
@@ -22,7 +23,7 @@ const LANGUAGES = [
   { code: "Turkish", label: "Türkçe" },
 ];
 
-const ChatSidebar = ({ article, onClose }) => {
+const ChatSidebar = ({ article, onClose, onNoteSaved }) => {
   const [messages, setMessages] = useState([
     {
       role: "ai",
@@ -34,6 +35,9 @@ const ChatSidebar = ({ article, onClose }) => {
   const [selectedLanguage, setSelectedLanguage] = useState("English");
   const [isSpeaking, setIsSpeaking] = useState(null); // stores the index of message being spoken
   const scrollRef = useRef(null);
+  const [isNoteModalOpen, setIsNoteModalOpen] = useState(false);
+  const [summaryNote, setSummaryNote] = useState("");
+  const [isSummarizing, setIsSummarizing] = useState(false);
 
   // 🛡️ TTS SAFEGUARD: Immediate cleanup on unmount or when sidebar closes
   useEffect(() => {
@@ -90,68 +94,106 @@ const ChatSidebar = ({ article, onClose }) => {
     } else {
       window.speechSynthesis.cancel(); // cancel any previous
       const utterance = new SpeechSynthesisUtterance(text);
-      
+
       // Attempt to find a voice matching the language if possible
       utterance.onend = () => setIsSpeaking(null);
       utterance.onerror = () => setIsSpeaking(null);
-      
+
       setIsSpeaking(index);
       window.speechSynthesis.speak(utterance);
     }
   };
 
-const handleLanguageChange = async (newLang) => {
+  const handleLanguageChange = async (newLang) => {
     const oldLang = selectedLanguage;
+    const previousMessages = [...messages]; // 🛡️ BACKUP STATE: Prevent blank UI on failure
     setSelectedLanguage(newLang);
-    
+
     if (messages.length <= 1 || loading) return;
 
     setLoading(true);
     try {
-      // Bundle history for batch translation
-      const historyStr = JSON.stringify(messages.map(m => ({ role: m.role, content: m.text })));
-      
       const response = await api.post("/api/chat", {
         article_text: article.summary || article.content || article.title,
-        question: `Translate the following chat history into ${newLang}. You MUST return your response ONLY as a valid, raw JSON array of objects, with no markdown formatting or backticks. Each object must have a 'role' ('user' or 'ai') and 'content' (the translated text). Here is the history: ${historyStr}`,
-        language: newLang
+        question: `Translate the previous chat history into ${newLang}. YOU MUST RETURN ONLY THE JSON ARRAY. DON'T ADD ANY EXTRA TEXT.`,
+        language: newLang,
+        history: messages.map(m => ({ role: m.role, content: m.text }))
       });
 
-      if (response.data.ok) {
-        const rawText = response.data.answer.trim();
-        
-        try {
-          // 🛡️ BULLETPROOF EXTRACTION: Use regex to find the array even if AI adds conversational text
-          const jsonMatch = rawText.match(/\[[\s\S]*\]/);
-          if (!jsonMatch) throw new Error("No JSON array found in response");
-          
-          const translatedHistory = JSON.parse(jsonMatch[0]);
-          
-          if (Array.isArray(translatedHistory)) {
-            // Overwrite messages with the batch-translated version
-            setMessages(translatedHistory.map(m => ({
-              role: m.role,
-              text: m.content
-            })));
-          } else {
-            throw new Error("AI did not return an array");
-          }
-        } catch (parseErr) {
-          console.error("JSON Extraction Error:", parseErr, rawText);
-          alert("The AI returned a malformed response during translation. Please try again or stick to the current language.");
-          setSelectedLanguage(oldLang); // Revert dropdown
+      if (!response.data.ok) {
+        throw new Error(response.data.answer);
+      }
+
+      const rawText = response.data.answer.trim();
+
+      try {
+        // 🛡️ BULLETPROOF EXTRACTION: Use regex to find the array even if AI adds conversational text
+        const jsonMatch = rawText.match(/\[[\s\S]*\]/);
+        if (!jsonMatch) throw new Error("No JSON array found in response");
+
+        const translatedHistory = JSON.parse(jsonMatch[0]);
+
+        if (!Array.isArray(translatedHistory)) throw new Error("AI did not return an array");
+
+        // 🛡️ DISAPPEARING CHAT FIX: Strict length validation
+        if (translatedHistory.length < messages.length) {
+          throw new Error("AI returned incomplete history (summarized)");
         }
+
+        // Overwrite messages with the batch-translated version
+        setMessages(translatedHistory.map(m => ({
+          // 🛡️ ROLE NORMALIZATION: Force bad roles to "ai"
+          role: (m.role === "model" || m.role === "assistant") ? "ai" : m.role,
+          text: m.content
+        })));
+      } catch (error) {
+        console.error("🚨 PARSE ERROR DETAILS:", error);
+        alert("The AI returned a malformed response during translation. Please try again or stick to the current language.");
+        setMessages(previousMessages); // 🛡️ RESTORE STATE
+        setSelectedLanguage(oldLang); // Revert dropdown
       }
     } catch (err) {
       console.error("Batch Translation error:", err);
-      alert("Failed to translate the chat history.");
+      // Append the error message directly to chat history instead of alert()
+      alert(`Translation failed: ${err.message || "Please try again."}`);
+      setMessages(previousMessages); // 🛡️ RESTORE STATE
       setSelectedLanguage(oldLang);
     } finally {
       setLoading(false);
     }
   };
 
+  const handleSummarizeAndSave = async () => {
+    if (messages.length <= 1 || isSummarizing) return;
+    setIsSummarizing(true);
+    try {
+      const response = await api.post("/api/chat/summary", {
+        history: messages.map(m => ({ role: m.role, content: m.text })),
+        language: selectedLanguage
+      });
+
+      if (response.data.ok) {
+        const existingNote = article.note || "";
+        const newText = existingNote
+          ? `${existingNote}\n\n--- AI Chat Summary ---\n${response.data.summary}`
+          : `--- AI Chat Summary ---\n${response.data.summary}`;
+        setSummaryNote(newText);
+        setIsNoteModalOpen(true);
+      } else {
+        alert("Failed to generate summary: " + response.data.summary);
+      }
+    } catch (err) {
+      console.error("Summary error:", err);
+      alert("Error generating summary.");
+    } finally {
+      setIsSummarizing(false);
+    }
+  };
+
   if (!article) return null;
+
+  // Check if article is saved (typically indicated by having a saved_id or a populated note field)
+  const isSavedArticle = !!(article.saved_id || article.note !== undefined);
 
   return (
     <div className="fixed inset-0 z-[60] flex justify-end overflow-hidden">
@@ -177,7 +219,7 @@ const handleLanguageChange = async (newLang) => {
                 <p className="text-[10px] text-slate-500 uppercase tracking-widest font-black">
                   Grounded by Gemini
                 </p>
-                <select 
+                <select
                   value={selectedLanguage}
                   onChange={(e) => handleLanguageChange(e.target.value)}
                   className="text-[10px] bg-slate-100 dark:bg-slate-800 border-none rounded py-0 px-1 font-bold text-blue-600 outline-none focus:ring-0"
@@ -189,12 +231,24 @@ const handleLanguageChange = async (newLang) => {
               </div>
             </div>
           </div>
-          <button
-            onClick={onClose}
-            className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg text-slate-500 transition-colors"
-          >
-            <X className="w-5 h-5" />
-          </button>
+          <div className="flex items-center gap-1">
+            {isSavedArticle && (
+              <button
+                onClick={handleSummarizeAndSave}
+                disabled={isSummarizing || messages.length <= 1}
+                title="Summarize Chat to Notes"
+                className="p-2 hover:bg-blue-50 dark:hover:bg-slate-800 rounded-lg text-blue-600 dark:text-blue-400 transition-colors disabled:opacity-50"
+              >
+                {isSummarizing ? <Bot className="w-5 h-5 animate-pulse" /> : <BookOpen className="w-5 h-5" />}
+              </button>
+            )}
+            <button
+              onClick={onClose}
+              className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg text-slate-500 transition-colors"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
         </div>
 
         {/* Selected Article Meta */}
@@ -219,15 +273,14 @@ const handleLanguageChange = async (newLang) => {
             >
               <div className="flex flex-col gap-1 max-w-[85%]">
                 <div
-                  className={`p-3 rounded-2xl text-sm shadow-sm relative group ${
-                    msg.role === "user"
-                      ? "bg-blue-600 text-white rounded-tr-none"
-                      : "bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200 rounded-tl-none border border-slate-200 dark:border-slate-700"
-                  }`}
+                  className={`p-3 rounded-2xl text-sm shadow-sm relative group ${msg.role === "user"
+                    ? "bg-blue-600 text-white rounded-tr-none"
+                    : "bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200 rounded-tl-none border border-slate-200 dark:border-slate-700"
+                    }`}
                 >
                   {msg.text}
-                  
-                  {msg.role === "ai" && (
+
+                  {(msg.role === "ai" || msg.role === "model" || msg.role === "assistant") && (
                     <button
                       onClick={() => handleToggleSpeech(msg.text, idx)}
                       className="absolute -right-8 top-0 p-1.5 text-slate-400 hover:text-blue-600 transition-colors"
@@ -244,7 +297,7 @@ const handleLanguageChange = async (newLang) => {
               </div>
             </div>
           ))}
-          
+
           {loading && (
             <div className="flex justify-start">
               <div className="bg-slate-100 dark:bg-slate-800 p-3 rounded-2xl rounded-tl-none border border-slate-200 dark:border-slate-700">
@@ -285,6 +338,22 @@ const handleLanguageChange = async (newLang) => {
           </p>
         </div>
       </aside>
+
+      {/* Note Modal for AI Summary */}
+      {isNoteModalOpen && (
+        <NoteModal
+          isOpen={isNoteModalOpen}
+          onClose={() => setIsNoteModalOpen(false)}
+          articleId={article.article_id || article.id}
+          articleTags={article.tags || []}
+          initialNote={summaryNote}
+          onSave={(newNote) => {
+            // Safe fallback if parent state updater isn't wired yet.
+            if (!article.note) article.note = newNote;
+          }}
+          onNoteSaved={onNoteSaved}
+        />
+      )}
     </div>
   );
 };
