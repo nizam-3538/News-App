@@ -50,6 +50,13 @@ const Login = () => {
     }
   };
 
+  const handleLoadDemo = () => {
+    setFormData({
+      email: "test@example.com",
+      password: "Password",
+    });
+  };
+
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col justify-center items-center p-4">
       <div className="w-full max-w-md bg-white rounded-2xl shadow-xl border border-gray-100 p-8">
@@ -136,6 +143,17 @@ const Login = () => {
             ) : (
               "Sign In"
             )}
+          </button>
+
+          <button
+            type="button"
+            onClick={handleLoadDemo}
+            disabled={loading}
+            className="w-full bg-transparent text-gray-600 font-semibold rounded-xl py-3 px-4 
+              border border-gray-300 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-gray-200 focus:ring-offset-2
+              transition-all duration-200 flex items-center justify-center mt-3"
+          >
+            Load Demo Credentials
           </button>
         </form>
 
